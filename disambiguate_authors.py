@@ -30,6 +30,9 @@ FINAL_ACCEPT_THRESHOLD = 70.0  # (0-100) Score needed to merge into Master
 COAUTHOR_BOOST_POINTS = 50.0   # Points added for shared co-authors
 
 def main():
+    print("--- 0. RESETTING TEST ENVIRONMENT ---")
+    reset_test_data() # <--- NEW FUNCTION TO FIX THE "4 ENTRIES" BUG
+
     print("--- 1. PREPARING DATABASE ENVIRONMENT ---")
     setup_candidate_table()
 
@@ -43,6 +46,17 @@ def main():
 
     print("--- 4. CLUSTERING & MERGING (MASTER RECORDS) ---")
     cluster_and_merge()
+
+# ==============================================================================
+# STEP 0: RESET DATA (CRITICAL FOR TESTING)
+# ==============================================================================
+def reset_test_data():
+    """Resets master_author_id so we can re-run the matching logic."""
+    print("   -> Clearing previous master_author_id assignments...")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE public.test_author SET master_author_id = NULL"))
+        # Optional: Clear the master table too if you want a fresh start
+        conn.execute(text("TRUNCATE TABLE public.master_author CASCADE"))
 
 # ==============================================================================
 # STEP 1: SETUP
