@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 import textdistance
 import os
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 load_dotenv()
 
@@ -90,8 +91,8 @@ def generate_candidates():
     total_candidates_found = 0
     batch_inserts = []
     
-    # 2. Iterate through each block
-    for block in blocks:
+    # WRAP 'blocks' with tqdm() to create the progress bar
+    for block in tqdm(blocks, desc="Blocking Authors"):
         lname = block.lname
         init = block.fname_init
         
@@ -178,7 +179,9 @@ def score_and_boost():
     # Note: We do this in a loop, but for millions of records, you'd want to batch this query.
     print(f"   -> Analyzing {len(df_candidates)} pairs for co-author overlap...")
     
-    for idx, row in df_candidates.iterrows():
+    # tqdm needs an iterable. For pandas, we iterate the index.
+    # total=len(df) tells tqdm how long the bar should be.
+    for idx, row in tqdm(df_candidates.iterrows(), total=df_candidates.shape[0], desc="Checking Co-Authors"):
         id_a = row['author_id_a']
         id_b = row['author_id_b']
         
