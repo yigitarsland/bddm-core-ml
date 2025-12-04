@@ -3,4 +3,11 @@ psycopg2-binary==2.9.9
 networkx==3.4.2
 thefuzz[speedup]==0.22.1
 dotenv==1.0.1
-requests==2.32.3        
+requests==2.32.3
+tqdm==4.67.1
+pandas==2.2.3
+textdistance==4.6.4
+sqlalchemy==2.0.39
+pandasql==0.10.1
+
+
