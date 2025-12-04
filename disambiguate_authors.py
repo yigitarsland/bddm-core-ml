@@ -19,9 +19,9 @@ DB_NAME = os.getenv("DB_NAME")
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
+# encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
 
-DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_engine(
     DB_CONNECTION, 
