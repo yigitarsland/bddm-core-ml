@@ -12,15 +12,18 @@ load_dotenv()
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
+DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME")
 
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-engine = create_engine(DB_CONNECTION)
-
+DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:TCeVjNX%23T98YbUCwq%406p@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# We add connect_args to force the connection to use UTF-8
+engine = create_engine(
+    DB_CONNECTION, 
+    connect_args={'client_encoding': 'utf8'}
+)
 # THRESHOLDS
 INITIAL_MATCH_THRESHOLD = 0.4  # (0-1) How similar names must be to even be CHECKED
 FINAL_ACCEPT_THRESHOLD = 70.0  # (0-100) Score needed to merge into Master
