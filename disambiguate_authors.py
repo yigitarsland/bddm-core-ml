@@ -1,6 +1,7 @@
 import pandas as pd
 import networkx as nx
 from sqlalchemy import create_engine, text
+import textdistance
 
 # ==============================================================================
 # CONFIGURATION
@@ -53,43 +54,98 @@ def setup_candidate_table():
 # ==============================================================================
 def generate_candidates():
     """
-    We cannot compare everyone to everyone. We only compare people who
-    share the same normalized Last Name and First Initial.
+    Since we don't have pg_trgm, we cannot ask the DB for fuzzy matches.
+    Instead, we fetch groups of people with the SAME Last Name 
+    and calculate the fuzzy score in Python.
     """
-    sql = text("""
-        INSERT INTO public.match_candidates (author_id_a, author_id_b, name_score)
-        SELECT 
-            t1.id, 
-            t2.id, 
-            -- Calculate Basic Name Similarity (0 to 100)
-            similarity(
-                (t1.given_name || ' ' || t1.family_name), 
-                (t2.given_name || ' ' || t2.family_name)
-            ) * 100
-        FROM public.test_author t1
-        JOIN public.test_author t2 
-            -- BLOCKING LOGIC:
-            ON lower(t1.family_name) = lower(t2.family_name) 
-            AND lower(substring(t1.given_name, 1, 1)) = lower(substring(t2.given_name, 1, 1))
-            AND t1.id < t2.id -- Prevent duplicates (A-B vs B-A)
-        WHERE 
-            t1.master_author_id IS NULL -- Only check unlinked authors
-            AND t2.master_author_id IS NULL
-            -- OPTIMIZATION: Only keep pairs where names are reasonably close
-            AND similarity(
-                (t1.given_name || ' ' || t1.family_name), 
-                (t2.given_name || ' ' || t2.family_name)
-            ) > :thresh
+    print("   -> Fetching blocking keys (unique last names)...")
+    
+    # 1. Get all unique Blocking Keys (Last Name + First Initial)
+    # This prevents us from loading the whole DB into RAM.
+    # We use standard SQL lower() and substring() which exist in all DBs.
+    keys_sql = text("""
+        SELECT DISTINCT 
+            lower(family_name) as lname, 
+            lower(substring(given_name, 1, 1)) as fname_init
+        FROM public.test_author
+        WHERE master_author_id IS NULL -- Only check unprocessed
     """)
     
-    with engine.begin() as conn:
-        conn.execute(sql, {"thresh": INITIAL_MATCH_THRESHOLD})
-    
-    # Check how many we found
     with engine.connect() as conn:
-        count = conn.execute(text("SELECT COUNT(*) FROM public.match_candidates")).scalar()
-    print(f"   -> Found {count} pairs to analyze.")
+        blocks = conn.execute(keys_sql).fetchall()
+        
+    print(f"   -> Found {len(blocks)} blocks to process.")
+    
+    total_candidates_found = 0
+    batch_inserts = []
+    
+    # 2. Iterate through each block
+    for block in blocks:
+        lname = block.lname
+        init = block.fname_init
+        
+        if not lname or not init:
+            continue
 
+        # Fetch all authors in this specific block
+        # We perform the "Self-Join" in memory (Python) for this small slice of data
+        records_sql = text("""
+            SELECT id, given_name, family_name
+            FROM public.test_author
+            WHERE lower(family_name) = :lname 
+              AND lower(substring(given_name, 1, 1)) = :init
+              AND master_author_id IS NULL
+        """)
+        
+        df = pd.read_sql(records_sql, engine, params={"lname": lname, "init": init})
+        
+        if len(df) < 2:
+            continue # No pairs possible
+
+        # 3. Pairwise Comparison in Python
+        # We convert to a list of dicts for faster iteration than DataFrame
+        records = df.to_dict('records')
+        
+        for i in range(len(records)):
+            for j in range(i + 1, len(records)):
+                rec_a = records[i]
+                rec_b = records[j]
+                
+                # Create Full Name Strings
+                name_a = f"{rec_a['given_name']} {rec_a['family_name']}".lower()
+                name_b = f"{rec_b['given_name']} {rec_b['family_name']}".lower()
+                
+                # PYTHON FUZZY MATCH (Jaro-Winkler is excellent for names)
+                # Score is 0.0 to 1.0, so we multiply by 100
+                score = textdistance.jaro_winkler(name_a, name_b) * 100
+                
+                # Only keep if it looks like a match
+                if score > (INITIAL_MATCH_THRESHOLD * 100):
+                    batch_inserts.append({
+                        "a": rec_a['id'],
+                        "b": rec_b['id'],
+                        "score": score
+                    })
+                    total_candidates_found += 1
+
+        # Optimization: Insert in batches of 1000 to save memory
+        if len(batch_inserts) > 1000:
+            flush_candidates(batch_inserts)
+            batch_inserts = []
+
+    # Flush remaining
+    if batch_inserts:
+        flush_candidates(batch_inserts)
+
+    print(f"   -> Generated {total_candidates_found} candidates using Python scoring.")
+
+def flush_candidates(batch):
+    """Helper to bulk insert candidates"""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO public.match_candidates (author_id_a, author_id_b, name_score)
+            VALUES (:a, :b, :score)
+        """), batch)
 # ==============================================================================
 # STEP 3: CO-AUTHOR BOOST
 # ==============================================================================
