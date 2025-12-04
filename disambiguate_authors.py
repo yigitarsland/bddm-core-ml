@@ -164,6 +164,7 @@ def flush_candidates(batch):
             INSERT INTO public.match_candidates (author_id_a, author_id_b, name_score)
             VALUES (:a, :b, :score)
         """), batch)
+        
 # ==============================================================================
 # STEP 3: CO-AUTHOR BOOST
 # ==============================================================================
@@ -182,28 +183,21 @@ def score_and_boost():
     updates = []
     
     # 2. Check overlap for each pair
-    # Note: We do this in a loop, but for millions of records, you'd want to batch this query.
     print(f"   -> Analyzing {len(df_candidates)} pairs for co-author overlap...")
     
-    # tqdm needs an iterable. For pandas, we iterate the index.
-    # total=len(df) tells tqdm how long the bar should be.
     for idx, row in tqdm(df_candidates.iterrows(), total=df_candidates.shape[0], desc="Checking Co-Authors"):
-        id_a = row['author_id_a']
-        id_b = row['author_id_b']
-        # Force conversion from numpy type to python native int
-        id_a = int(id_a)
-        id_b = int(id_b)
+        # Fix IDs (You already did this - Good!)
+        id_a = int(row['author_id_a'])
+        id_b = int(row['author_id_b'])
         
-        # LOGIC:
-        # Find all authors (t1.author_id) who are on papers with A
-        # AND on papers with B.
+        # LOGIC: Check for shared co-authors
         overlap_sql = text("""
             SELECT COUNT(DISTINCT t1.author_id)
             FROM public.test_authorship t1
             JOIN public.test_authorship t2 ON t1.author_id = t2.author_id
             WHERE t1.publication_id IN (SELECT publication_id FROM public.test_authorship WHERE author_id = :id_a)
               AND t2.publication_id IN (SELECT publication_id FROM public.test_authorship WHERE author_id = :id_b)
-              AND t1.author_id NOT IN (:id_a, :id_b) -- Exclude the candidates themselves
+              AND t1.author_id NOT IN (:id_a, :id_b)
         """)
         
         with engine.connect() as conn:
@@ -211,17 +205,23 @@ def score_and_boost():
         
         boost = 0
         if shared_count > 0:
-            # boost = COAUTHOR_BOOST_POINTS
-            # Optional: Scale boost by number of shared co-authors? 
+            # Cap the boost at 60 points
             boost = min(shared_count * 20, 60)
+
+        # --- CRITICAL FIX HERE ---
+        # 1. Calculate the math
+        raw_final_score = row['name_score'] + boost
         
-        final_score = row['name_score'] + boost
+        # 2. CONVERT TO PYTHON FLOAT (Removes the 'np' error)
+        final_boost = float(boost)
+        final_total = float(raw_final_score)
+        # -------------------------
         
         updates.append({
             "a": id_a,
             "b": id_b,
-            "boost": boost,
-            "total": final_score
+            "boost": final_boost, # Use the converted float
+            "total": final_total  # Use the converted float
         })
 
     # 3. Bulk Update scores
