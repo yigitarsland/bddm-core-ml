@@ -66,7 +66,7 @@ def setup_candidate_table():
                 PRIMARY KEY (author_id_a, author_id_b)
             );
         """))
-        
+
 # ==============================================================================
 # STEP 2: FIND POTENTIAL MATCHES (BLOCKING)
 # ==============================================================================
@@ -190,6 +190,9 @@ def score_and_boost():
     for idx, row in tqdm(df_candidates.iterrows(), total=df_candidates.shape[0], desc="Checking Co-Authors"):
         id_a = row['author_id_a']
         id_b = row['author_id_b']
+        # Force conversion from numpy type to python native int
+        id_a = int(id_a)
+        id_b = int(id_b)
         
         # LOGIC:
         # Find all authors (t1.author_id) who are on papers with A
@@ -208,9 +211,9 @@ def score_and_boost():
         
         boost = 0
         if shared_count > 0:
-            boost = COAUTHOR_BOOST_POINTS
+            # boost = COAUTHOR_BOOST_POINTS
             # Optional: Scale boost by number of shared co-authors? 
-            # boost = min(shared_count * 20, 60)
+            boost = min(shared_count * 20, 60)
         
         final_score = row['name_score'] + boost
         
