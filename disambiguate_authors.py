@@ -49,9 +49,14 @@ def main():
 # ==============================================================================
 def setup_candidate_table():
     """Creates a table to hold our potential matches during processing."""
+    print("   -> Resetting candidate table...")
     with engine.begin() as conn:
+        # 1. DROP the table if it exists (Force a clean slate)
+        conn.execute(text("DROP TABLE IF EXISTS public.match_candidates"))
+
+        # 2. CREATE it with the exact columns Python expects
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS public.match_candidates (
+            CREATE TABLE public.match_candidates (
                 author_id_a INT,
                 author_id_b INT,
                 name_score FLOAT DEFAULT 0,
@@ -60,10 +65,8 @@ def setup_candidate_table():
                 status VARCHAR(20) DEFAULT 'pending',
                 PRIMARY KEY (author_id_a, author_id_b)
             );
-            -- Clear previous runs if you want a fresh start
-            TRUNCATE TABLE public.match_candidates; 
         """))
-
+        
 # ==============================================================================
 # STEP 2: FIND POTENTIAL MATCHES (BLOCKING)
 # ==============================================================================
