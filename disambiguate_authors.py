@@ -5,6 +5,7 @@ import textdistance
 import os
 from dotenv import load_dotenv
 from tqdm import tqdm
+import urllib.parse
 
 load_dotenv()
 
@@ -18,21 +19,21 @@ DB_NAME = os.getenv("DB_NAME")
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:TCeVjNX%23T98YbUCwq%406p@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-# We add connect_args to force the connection to use UTF-8
+encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
+
+DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 engine = create_engine(
     DB_CONNECTION, 
     connect_args={'client_encoding': 'utf8'}
 )
+
 # THRESHOLDS
 INITIAL_MATCH_THRESHOLD = 0.4  # (0-1) How similar names must be to even be CHECKED
 FINAL_ACCEPT_THRESHOLD = 70.0  # (0-100) Score needed to merge into Master
 COAUTHOR_BOOST_POINTS = 50.0   # Points added for shared co-authors
 
 def main():
-    print("--- 0. RESETTING TEST ENVIRONMENT ---")
-    reset_test_data() # <--- NEW FUNCTION TO FIX THE "4 ENTRIES" BUG
-
     print("--- 1. PREPARING DATABASE ENVIRONMENT ---")
     setup_candidate_table()
 
@@ -46,17 +47,6 @@ def main():
 
     print("--- 4. CLUSTERING & MERGING (MASTER RECORDS) ---")
     cluster_and_merge()
-
-# ==============================================================================
-# STEP 0: RESET DATA (CRITICAL FOR TESTING)
-# ==============================================================================
-def reset_test_data():
-    """Resets master_author_id so we can re-run the matching logic."""
-    print("   -> Clearing previous master_author_id assignments...")
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE public.test_author SET master_author_id = NULL"))
-        # Optional: Clear the master table too if you want a fresh start
-        conn.execute(text("TRUNCATE TABLE public.master_author CASCADE"))
 
 # ==============================================================================
 # STEP 1: SETUP

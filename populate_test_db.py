@@ -7,6 +7,10 @@ import codecs
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+import urllib.parse
+
+
 load_dotenv()
 
 
@@ -14,13 +18,22 @@ load_dotenv()
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-# --- CONFIGURATION ---
-DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME"),
-    "user": os.getenv("DB_USER"),
-    "password": os.getenv("DB_PASSWORD"),
-    "host": os.getenv("DB_HOST", "localhost")
-}   
+# Fetch DB credentials from environment
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME")
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+DB_CONNECTION = f"postgresql+psycopg2://{DB_USER}:TCeVjNX%23T98YbUCwq%406p@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# We add connect_args to force the connection to use UTF-8
+engine = create_engine(
+    DB_CONNECTION, 
+    connect_args={'client_encoding': 'utf8'}
+)
 
 # ORCID API Config (Use Public API)
 # Ideally, register a Public API client to get higher rate limits
@@ -37,11 +50,24 @@ SEARCH_QUERY = 'affiliation-org-name:"University"'
 
 # --- DATABASE CONNECTION ---
 try:
-    # We add client_encoding to ensure special chars pass through correctly
-    conn = psycopg2.connect(**DB_CONFIG, options="-c client_encoding=UTF8")
+    # 1. Decode the password (convert %23 -> # and %40 -> @)
+    # We use 'unquote' because your .env password is URL encoded.
+    raw_password = urllib.parse.unquote(DB_PASSWORD)
+
+    # 2. Connect using explicit arguments (fixes the "mapping" error)
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=raw_password, 
+        options="-c client_encoding=UTF8"
+    )
+    
     conn.autocommit = True
     cursor = conn.cursor()
     print("Connected to Database (UTF-8 mode).")
+
 except Exception as e:
     print(f"DB Connection failed: {e}")
     sys.exit(1)
