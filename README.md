@@ -2,7 +2,7 @@
 <table>
   <tr>
     <td width="200" align="center" valign="middle">
-      <img src="./logo.png" width="200" height="200" alt="BDDM Logo">
+      <img src="./BDDM dark.png" width="200" height="200" alt="BDDM Logo">
     </td>
     <td valign="middle">
       <h1>A Python Module for Bibliographic Data Disambiguation & Scholarly Data Integration</h1>
