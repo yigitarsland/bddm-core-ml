@@ -170,13 +170,12 @@ def flush_candidates(batch):
         """), batch)
         
 # ==============================================================================
-# STEP 3: CO-AUTHOR BOOST
+# STEP 3: CO-AUTHOR BOOST (UPDATED: TRIANGLE + DIRECT)
 # ==============================================================================
 def score_and_boost():
-    """
-    Iterates through candidates. Queries the graph to see if they share co-authors.
-    """
-    # 1. Fetch all pending candidates
+    print("--- 3. CALCULATING CO-AUTHORSHIP & SCORING ---")
+    
+    # 1. Fetch candidates
     fetch_sql = text("SELECT author_id_a, author_id_b, name_score FROM public.match_candidates")
     df_candidates = pd.read_sql(fetch_sql, engine)
     
@@ -186,58 +185,84 @@ def score_and_boost():
 
     updates = []
     
-    # 2. Check overlap for each pair
-    print(f"   -> Analyzing {len(df_candidates)} pairs for co-author overlap...")
+    print(f"   -> Analyzing {len(df_candidates)} pairs...")
     
-    for idx, row in tqdm(df_candidates.iterrows(), total=df_candidates.shape[0], desc="Checking Co-Authors"):
-        # Fix IDs (You already did this - Good!)
-        id_a = int(row['author_id_a'])
-        id_b = int(row['author_id_b'])
-        
-        # LOGIC: Check for shared co-authors
-        overlap_sql = text("""
-            SELECT COUNT(DISTINCT t1.author_id)
+    # 2. PREPARE QUERIES
+    
+    # QUERY A: The Mutual Friend (Triangle)
+    # "Do we both know Person C?"
+    shared_friends_sql = text("""
+        WITH a_friends AS (
+            SELECT t2.author_id 
             FROM public.test_authorship t1
-            JOIN public.test_authorship t2 ON t1.author_id = t2.author_id
-            WHERE t1.publication_id IN (SELECT publication_id FROM public.test_authorship WHERE author_id = :id_a)
-              AND t2.publication_id IN (SELECT publication_id FROM public.test_authorship WHERE author_id = :id_b)
-              AND t1.author_id NOT IN (:id_a, :id_b)
-        """)
-        
-        with engine.connect() as conn:
-            shared_count = conn.execute(overlap_sql, {"id_a": id_a, "id_b": id_b}).scalar()
-        
-        boost = 0
-        if shared_count > 0:
-            # Cap the boost at 60 points
-            boost = min(shared_count * 20, 60)
+            JOIN public.test_authorship t2 ON t1.publication_id = t2.publication_id
+            WHERE t1.author_id = :id_a AND t2.author_id != :id_a
+        ),
+        b_friends AS (
+            SELECT t2.author_id 
+            FROM public.test_authorship t1
+            JOIN public.test_authorship t2 ON t1.publication_id = t2.publication_id
+            WHERE t1.author_id = :id_b AND t2.author_id != :id_b
+        )
+        SELECT COUNT(DISTINCT a_friends.author_id)
+        FROM a_friends
+        JOIN b_friends ON a_friends.author_id = b_friends.author_id
+    """)
 
-        # --- CRITICAL FIX HERE ---
-        # 1. Calculate the math
-        raw_final_score = row['name_score'] + boost
-        
-        # 2. CONVERT TO PYTHON FLOAT (Removes the 'np' error)
-        final_boost = float(boost)
-        final_total = float(raw_final_score)
-        # -------------------------
-        
-        updates.append({
-            "a": id_a,
-            "b": id_b,
-            "boost": final_boost, # Use the converted float
-            "total": final_total  # Use the converted float
-        })
+    # QUERY B: The Direct Link (The Line) -- THIS WAS MISSING
+    # "Are we on the same paper together?"
+    direct_link_sql = text("""
+        SELECT COUNT(*)
+        FROM public.test_authorship t1
+        JOIN public.test_authorship t2 ON t1.publication_id = t2.publication_id
+        WHERE t1.author_id = :id_a 
+          AND t2.author_id = :id_b
+    """)
 
-    # 3. Bulk Update scores
+    # 3. EXECUTE
+    with engine.connect() as conn:
+        for idx, row in tqdm(df_candidates.iterrows(), total=df_candidates.shape[0], desc="Scoring"):
+            id_a = int(row['author_id_a'])
+            id_b = int(row['author_id_b'])
+            
+            # Run both checks
+            shared_count = conn.execute(shared_friends_sql, {"id_a": id_a, "id_b": id_b}).scalar()
+            direct_count = conn.execute(direct_link_sql, {"id_a": id_a, "id_b": id_b}).scalar()
+            
+            boost = 0.0
+            
+            # Rule 1: Shared Friends (e.g. 20 points per friend)
+            if shared_count and shared_count > 0:
+                boost += (shared_count * 20.0)
+                
+            # Rule 2: Direct Connection (Strongest Signal!)
+            # If they are on the same paper, give a massive boost
+            if direct_count and direct_count > 0:
+                boost += 40.0 # High confidence boost
+
+            # Cap the boost so it doesn't get crazy
+            boost = min(boost, 70.0)
+
+            raw_final_score = row['name_score'] + boost
+            
+            updates.append({
+                "a": id_a,
+                "b": id_b,
+                "boost": float(boost),
+                "total": float(raw_final_score)
+            })
+
+    # 4. UPDATE DB
     print("   -> Updating scores in database...")
-    with engine.begin() as conn:
-        for up in updates:
-            conn.execute(text("""
-                UPDATE public.match_candidates
-                SET coauthor_boost = :boost,
-                    total_score = :total
-                WHERE author_id_a = :a AND author_id_b = :b
-            """), up)
+    if updates:
+        with engine.begin() as conn:
+            for up in updates:
+                conn.execute(text("""
+                    UPDATE public.match_candidates
+                    SET coauthor_boost = :boost,
+                        total_score = :total
+                    WHERE author_id_a = :a AND author_id_b = :b
+                """), up)
 
 # ==============================================================================
 # STEP 4: CLUSTER & MERGE
