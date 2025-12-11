@@ -1,11 +1,14 @@
 
-<div style="display: flex; align-items: center;">
-  <img src="./BDDM dark.png" width="150" style="margin-right: 15px; border-radius: 50%;">
-  <div>
-    <h1>A Python Module for Bibliographic Data Disambiguation & Scholarly Data Integration</h1>
-  </div>
-</div>
-
+<table>
+  <tr>
+    <td width="200" align="center" valign="middle">
+      <img src="./logo.png" width="200" height="200" alt="BDDM Logo">
+    </td>
+    <td valign="middle">
+      <h1>A Python Module for Bibliographic Data Disambiguation & Scholarly Data Integration</h1>
+    </td>
+  </tr>
+</table>
 
 ---
 
